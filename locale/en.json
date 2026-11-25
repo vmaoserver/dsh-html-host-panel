@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "HTML hosting",
+    "description": "Browse HTML pages hosted on pages.vmao.top from the left sidebar panel (search, open, copy short links); new pages are published through the html_host_publish tool.",
+    "detail": "docs/DETAIL.md"
+  }
+}

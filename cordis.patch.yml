@@ -1,0 +1,5 @@
+- insert:
+    - id: html-host-panel
+      name: 'dsh-html-host-panel'
+      config:
+        serviceOrigin: https://pages.vmao.top

@@ -1,11 +1,13 @@
-﻿/**
+/**
  * dsh-html-host-panel —— Client 半（Web 页面）
  *
  * 入口是左侧面板列表里的一枚图标（sidebar.panellist），点开在中央主区域
  * 显示「已托管页面」列表（main 里同名 key）。
  *
- * 本面板只做浏览：列出 pages.vmao.top 上已有的页面，可打开、可复制短链。
- * 发布不在界面上，由 Agent 工具 html_host_publish 完成。
+ * 本面板做浏览：列出 pages.vmao.top 上已有的页面，可打开、可复制短链。
+ * 另有一处出口：会话侧边栏预览 HTML 文件时，预览头部出现「上传到 HTML 托管」，
+ * 把当前文件直接发布出去。面板本身不放上传框。
+ * AI 也仍可通过 html_host_publish 工具发布页面。
  * 凭证只有一种：API Key。
  *
  * 所有跨源请求都走 Host 注册的同源前缀路由 /__html-host/*，浏览器侧不直连 pages.vmao.top。
@@ -42,6 +44,9 @@ window.__ModuleLoader__.load({
 .hhp-page a.hhp-link { text-decoration: none; }
 .hhp-page a.hhp-link:hover { text-decoration: underline; }
 .hhp-page a.hhp-title:hover { text-decoration: underline; }
+.hhp-icon:disabled { opacity: .5; cursor: default; }
+.hhp-icon:hover:not(:disabled) { color: var(--dsw-alias-label-primary); }
+.hhp-icon svg { pointer-events: none; }
 `
 
     function LocalStyles() {
@@ -254,6 +259,20 @@ window.__ModuleLoader__.load({
         background: 'var(--dsw-alias-state-warn-primary)',
       },
       lock: { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' },
+      previewAction: { display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 },
+      iconButton: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 26,
+        height: 26,
+        padding: 0,
+        borderRadius: 7,
+        border: '1px solid transparent',
+        background: 'transparent',
+        color: 'var(--dsw-alias-label-secondary)',
+        cursor: 'pointer',
+      },
     }
 
     /** 「页面 + 外链箭头」：读作「托管页面」。 */
@@ -496,7 +515,7 @@ window.__ModuleLoader__.load({
               h(
                 'p',
                 { style: styles.subtitle },
-                `${status.origin || 'pages.vmao.top'} 上已托管的页面。新页面由 AI 通过 html_host_publish 工具发布。`,
+                `${status.origin || 'pages.vmao.top'} 上已托管的页面。新页面由 AI 通过 html_host_publish 工具发布，或在会话里预览 HTML 文件时点「上传到 HTML 托管」。`,
               ),
             ),
             h(
@@ -664,6 +683,134 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /* ---------------------------------------------------------------- *
+     * 会话里打开 HTML 文件预览时，文档预览头部多一个上传图标
+     *
+     * 宿主把被预览文件的绝对路径作为 owner prop（absolutePath）交给
+     * `sidebar.right.tab.document.actions` 的占用者。只在 .html/.htm 上出现，
+     * 其它文件返回 null，不占位置。
+     *
+     * 按钮只有图标（云 + 上传箭头），所以必须自带 aria-label 与 title：
+     * 没有可见文字时，可访问名称不能也一起消失。
+     * ---------------------------------------------------------------- */
+
+    /** 「云 + 上传箭头」：读作「上传到托管」。原图 viewBox 1024，按需缩放。 */
+    function IconUploadCloud({ size = 16 }) {
+      return h(
+        'svg',
+        {
+          width: size,
+          height: size,
+          viewBox: '0 0 1024 1024',
+          fill: 'currentColor',
+          'aria-hidden': true,
+          focusable: 'false',
+          style: { display: 'block' },
+        },
+        h('path', {
+          d:
+            'M808.192 262.592a320.16 320.16 0 0 0-592.352 0A238.592 238.592 0 0 0 32 496C32 628.352 139.648 736 272 736h91.488a32 32 0 1 0 0-64H272A176.192 176.192 0 0 1 96 496a175.04 175.04 0 0 1 148.48-173.888l19.04-2.976 6.24-18.24C305.248 197.472 402.592 128 512 128a256 256 0 0 1 242.208 172.896l6.272 18.24 19.04 2.976A175.04 175.04 0 0 1 928 496c0 97.024-78.976 176-176 176h-97.28a32 32 0 1 0 0 64h97.28c132.352 0 240-107.648 240-240a238.592 238.592 0 0 0-183.808-233.408z',
+        }),
+        h('path', {
+          d:
+            'M649.792 570.048a32 32 0 1 0 40.544-49.536l-158.048-129.408a32 32 0 0 0-40.576 0l-159.04 130.24a32.032 32.032 0 0 0 20.256 56.768 31.744 31.744 0 0 0 20.256-7.264L480 483.456V912a32 32 0 0 0 64 0V483.456l105.792 86.592z',
+        }),
+      )
+    }
+
+    function fileNameOf(path) {
+      const cut = path.split(/[\\/]/).pop() || ''
+      return cut || '未命名页面'
+    }
+
+    function PreviewUploadAction(props) {
+      // hooks 必须无条件调用：先声明状态，再决定是否渲染。
+      const [busy, setBusy] = useState(false)
+      const [outcome, setOutcome] = useState(null)
+
+      const absolutePath = props && typeof props.absolutePath === 'string' ? props.absolutePath : ''
+      if (!/\.html?$/i.test(absolutePath)) return null
+
+      const baseName = fileNameOf(absolutePath)
+      const title = baseName.replace(/\.(html?|htm)$/i, '') || '未命名页面'
+
+      const handleUpload = async () => {
+        if (busy) return
+        setBusy(true)
+        setOutcome(null)
+        try {
+          const data = await requestJson('/publish-file', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path: absolutePath, title }),
+          })
+          if (data.ok) {
+            setOutcome({ ok: true, text: `已上传：${data.url || ''}` })
+          } else {
+            setOutcome({ ok: false, text: `${data.error || '上传失败'}${data.code ? `（${data.code}）` : ''}` })
+          }
+        } catch (err) {
+          setOutcome({ ok: false, text: `上传失败：${errorText(err)}` })
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      const handleCopy = async () => {
+        if (!outcome || !outcome.ok) return
+        const url = String(outcome.text).replace(/^已上传：/, '')
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(url)
+            setOutcome({ ok: true, text: `已复制：${url}` })
+          }
+        } catch {
+          /* 浏览器拒绝就保持原文案，用户仍可手动选中 */
+        }
+      }
+
+      return h(
+        'div',
+        { style: styles.previewAction },
+        h(LocalStyles, null),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'hhp-ghost hhp-icon',
+            style: styles.iconButton,
+            disabled: busy,
+            title: busy ? `正在上传 ${baseName}…` : `上传到 HTML 托管（${baseName}）`,
+            'aria-label': '上传到 HTML 托管',
+            'aria-busy': busy ? 'true' : undefined,
+            onClick: handleUpload,
+          },
+          h(IconUploadCloud, { size: 16 }),
+        ),
+        outcome
+          ? h(
+              'button',
+              {
+                type: 'button',
+                className: outcome.ok ? 'hhp-ghost hhp-link' : 'hhp-ghost',
+                style: {
+                  ...styles.ghost,
+                  height: 26,
+                  maxWidth: 320,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  color: outcome.ok ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-state-error-primary)',
+                },
+                title: outcome.text,
+                onClick: outcome.ok ? handleCopy : undefined,
+              },
+              outcome.text,
+            )
+          : null,
+      )
+    }
+
     return {
       inject: ['slots'],
       apply(ctx) {
@@ -678,6 +825,18 @@ window.__ModuleLoader__.load({
         )
         ctx.slots.inject('main', () =>
           ctx.slots.register({ name: 'main', key: PANEL_ID }, PanelPage),
+        )
+        // 会话侧边栏的文档预览头部：只在预览 .html/.htm 时出现上传按钮。
+        ctx.slots.inject('sidebar.right.tab.document.actions', () =>
+          ctx.slots.register(
+            {
+              name: 'sidebar.right.tab.document.actions',
+              id: 'html-host-upload',
+              order: 30,
+              label: '上传到 HTML 托管',
+            },
+            PreviewUploadAction,
+          ),
         )
       },
     }

@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "HTML 托管",
-    "description": "浏览 pages.vmao.top 上已托管的页面（左侧「HTML 托管」面板，可搜索、打开、复制短链）；新页面由 AI 通过 html_host_publish 工具发布。",
+    "description": "浏览 pages.vmao.top 上已托管的页面（左侧「HTML 托管」面板，可搜索、打开、复制短链）；在会话里预览 .html 文件时，预览头部有上传图标可直接发布。",
     "detail": "docs/DETAIL.md"
   }
 }

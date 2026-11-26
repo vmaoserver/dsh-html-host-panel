@@ -1,8 +1,6 @@
-﻿# dsh-html-host-panel
+# dsh-html-host-panel
 
-DeepSeek Harness 插件：在**左侧面板列表**里浏览托管在 [pages.vmao.top](https://pages.vmao.top) 上的 HTML 页面。
-
-面板只做浏览——新页面由 AI 通过 `html_host_publish` 工具发布，界面里没有上传框。
+DeepSeek Harness 插件：在**左侧面板列表**里浏览托管在 [pages.vmao.top](https://pages.vmao.top) 上的 HTML 页面；会话里预览 `.html` 文件时，预览头部多一个上传图标，点一下就把当前文件发布出去。
 
 ```
 左侧「HTML 托管」图标
@@ -10,6 +8,11 @@ DeepSeek Harness 插件：在**左侧面板列表**里浏览托管在 [pages.vma
         ├─ 点标题或短链 → 新标签页打开
         ├─ 复制 → 短链进剪贴板
         └─ 搜索、刷新、加载更多（每页 30 条）
+
+会话右侧预览 .html / .htm
+   └─ 预览头部：☁︎↑ 上传图标
+        ├─ 点击 → Host 读取该文件并发布
+        └─ 完成后右侧显示短链（点一下复制）
 ```
 
 ## 功能
@@ -18,11 +21,12 @@ DeepSeek Harness 插件：在**左侧面板列表**里浏览托管在 [pages.vma
 - **搜索**：按标题或页面 ID 过滤，回车即搜。
 - **刷新 / 加载更多**：`total` 显示总数，按需翻页。
 - **打开 / 复制**：一键拿短链。
+- **上传当前预览的 HTML**：会话里预览 `.html` / `.htm` 时，预览头部的图标把该文件发布出去（≤ 5 MB，标题取文件名）。按钮只有图标，保留 `aria-label` 供读屏使用。
 - **AI 发布**：会话里说「把这份报告发到 pages.vmao.top」，Agent 调 `html_host_publish` 直接发布并返回短链。
 
 ## 安装
 
-需要 DSH `0.2.2-rc.5` 或更高版本（使用了 `sidebar.panellist` 与 `main` 两个 Slot）。
+需要 DSH `0.2.2-rc.5` 或更高版本（使用 `sidebar.panellist`、`main` 与 `sidebar.right.tab.document.actions` 三个 Slot；后两个在更早的 rc 上也能解析，但只在有 Web GUI 的 profile 里出现）。
 
 ```bash
 dsh plugin add github:vmaoserver/dsh-html-host-panel
@@ -89,8 +93,8 @@ html_host_publish({
 仓库本身就是可安装的 bundle，没有构建步骤：
 
 ```
-index.js          Host 半：发布/列表实现、同源路由、Agent 工具
-client.js         Client 半：左侧图标 + 中央列表页
+index.js          Host 半：发布/列表实现、发布本地文件、同源路由、Agent 工具
+client.js         Client 半：左侧图标 + 中央列表页 + 预览头部上传图标
 cordis.patch.yml  装配（插入一行插件，带默认 serviceOrigin）
 locale/           中英文显示名
 docs/DETAIL.md    详细说明

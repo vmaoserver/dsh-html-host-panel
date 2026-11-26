@@ -1,21 +1,28 @@
-﻿/**
+/**
  * dsh-html-host-panel —— Host 半
  *
  * 职责：
- *  1. 唯一一份「发布」实现（publishPage）：只供 Agent 工具 html_host_publish 使用。
+ *  1. 唯一一份「发布」实现（publishPage）：供 Agent 工具 html_host_publish 与两条面板路由使用。
  *  2. 唯一一份「列出托管页面」实现（listPages）：供面板的浏览视图使用。
  *  3. 注册同源前缀路由 /__html-host/*，让浏览器面板绕开 pages.vmao.top 的
  *     跨源限制（该服务 cors 为 null，浏览器直连会被 CORS 拦下）。
- *  4. 凭证只支持 API Key，存进 credentials 服务的 GrantRecord，
+ *  4. 「发布本地文件」（publishFile）：会话侧边栏预览 HTML 时，预览头部把
+ *     被预览文件的绝对路径交给本进程读取并发布；文件内容不回传浏览器。
+ *  5. 凭证只支持 API Key，存进 credentials 服务的 GrantRecord，
  *     不写配置、不进日志、不回显明文。
  *
  * 依赖取舍：webServer 只在「有 Web 宿主」时存在，做成可选注册；
  * 否则在 CLI/TUI profile 里连发布工具都会一起消失。
  */
 
+import { readFile, stat } from 'node:fs/promises'
+
 const DEFAULT_ORIGIN = 'https://pages.vmao.top'
 const ROUTE_PREFIX = '/__html-host'
-const CREDENTIAL_KEY = 'html-host-panel:credential'
+// 本地修补：credentials 服务要求 `<scope>/<id>`（KEY_SEGMENT_PATTERN = /^[a-z][a-z0-9-]*$/），
+// 原值 'html-host-panel:credential' 用冒号分隔，会让 dsh-credentials-local 解析整份文档时抛错，
+// 连带 credentials 插件激活失败、connection 等 14 个插件连锁 pending、整个 Host 启动中止。
+const CREDENTIAL_KEY = 'html-host-panel/credential'
 const MAX_HTML_BYTES = 5 * 1024 * 1024
 const MAX_BODY_BYTES = 12 * 1024 * 1024
 const REQUEST_TIMEOUT_MS = 30_000
@@ -336,6 +343,66 @@ export function apply(ctx, config) {
   }
 
   /* ------------------------------------------------------------------ *
+   * 发布本地文件：会话侧边栏预览 HTML 时，预览头部把文件的绝对路径交过来。
+   *
+   * 只接受 .html / .htm，且必须落在本机绝对路径上；内容只在 Host 进程内读，
+   * 不回传浏览器，返回的只有短链。路径不合法时一律拒绝，不做猜测。
+   * ------------------------------------------------------------------ */
+
+  const HTML_SUFFIX = /\.html?$/i
+
+  function isAbsolutePath(value) {
+    if (typeof value !== 'string' || !value) return false
+    if (/^[A-Za-z]:[\\/]/.test(value)) return true
+    return value.startsWith('/') || value.startsWith('\\\\')
+  }
+
+  async function publishFile(input) {
+    const source = input && typeof input === 'object' ? input : {}
+    const target = typeof source.path === 'string' ? source.path.trim() : ''
+
+    if (!isAbsolutePath(target)) {
+      return { ok: false, code: 'BAD_PATH', error: '需要一个本机绝对路径（预览头部传下来的路径）' }
+    }
+    if (!HTML_SUFFIX.test(target)) {
+      return { ok: false, code: 'NOT_HTML', error: '只支持上传 .html / .htm 文件' }
+    }
+
+    let info
+    try {
+      info = await stat(target)
+    } catch (error) {
+      return { ok: false, code: 'FILE_UNREADABLE', error: `读不到这个文件：${errorMessage(error)}` }
+    }
+    if (!info.isFile()) {
+      return { ok: false, code: 'NOT_A_FILE', error: '这个路径不是普通文件' }
+    }
+    if (info.size > MAX_HTML_BYTES) {
+      return {
+        ok: false,
+        code: 'PAYLOAD_TOO_LARGE',
+        error: `文件 ${(info.size / 1048576).toFixed(2)} MB，超过服务端 5 MB 上限`,
+      }
+    }
+
+    let html
+    try {
+      html = await readFile(target, 'utf8')
+    } catch (error) {
+      return { ok: false, code: 'FILE_UNREADABLE', error: `读文件失败：${errorMessage(error)}` }
+    }
+    // 去掉 BOM，否则发布出去的页面首行会多一个不可见字符。
+    if (html.charCodeAt(0) === 0xfeff) html = html.slice(1)
+    if (!html.trim()) {
+      return { ok: false, code: 'EMPTY_HTML', error: '文件是空的，没有可发布的内容' }
+    }
+
+    const explicitTitle = typeof source.title === 'string' ? source.title.trim() : ''
+    const fallbackTitle = (target.split(/[\\/]/).pop() || '').replace(HTML_SUFFIX, '')
+    return publishPage({ html, title: explicitTitle || fallbackTitle })
+  }
+
+  /* ------------------------------------------------------------------ *
    * 同源路由：浏览器面板的入口（Host 侧代理，绕开跨源限制）
    *
    * 用 WebRoute（原始 Node 请求处理）：资源式 WebResourceRoute 在 HTTP 层
@@ -402,6 +469,14 @@ export function apply(ctx, config) {
               const body = parseJsonObject(await readRequestBody(req))
               if (!body) return sendJson(res, { ok: false, code: 'BAD_REQUEST', error: '请求体不是合法 JSON' }, 400)
               const result = await publishPage(body)
+              const extra = result.retryAfterSeconds ? { 'retry-after': String(result.retryAfterSeconds) } : undefined
+              return sendJson(res, result, result.ok ? 200 : result.status || 400, extra)
+            }
+
+            if (route === '/publish-file' && method === 'POST') {
+              const body = parseJsonObject(await readRequestBody(req))
+              if (!body) return sendJson(res, { ok: false, code: 'BAD_REQUEST', error: '请求体不是合法 JSON' }, 400)
+              const result = await publishFile(body)
               const extra = result.retryAfterSeconds ? { 'retry-after': String(result.retryAfterSeconds) } : undefined
               return sendJson(res, result, result.ok ? 200 : result.status || 400, extra)
             }

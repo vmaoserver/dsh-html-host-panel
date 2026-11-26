@@ -1,6 +1,6 @@
 # HTML 托管
 
-浏览 `https://pages.vmao.top` 上已托管的页面。**面板只做浏览，不提供上传界面**——新页面由 AI 通过 `html_host_publish` 工具发布。
+浏览 `https://pages.vmao.top` 上已托管的页面。上传入口在**会话侧边栏的 HTML 预览头部**：预览任意 `.html` / `.htm` 文件时，那里会出现「上传到 HTML 托管」。AI 仍可通过 `html_host_publish` 工具发布。
 
 ## 入口在哪
 
@@ -16,11 +16,23 @@
 - **打开**：点标题或短链在新标签页打开托管页。
 - **复制**：把短链复制到剪贴板。
 
+面板本身不放上传框——上传在预览头部，见下一节。
+
 **不做的事**：不删除、不改标题、不设访问密码——这些请用服务自带管理台或 API。
 
-## 想发布新页面？
+## 上传当前预览的 HTML
 
-在会话里让我发一句话就行，例如「把这份报告发到 pages.vmao.top」。我会调用 `html_host_publish`（接受 `html` / `title` / `ttlSeconds`）并把短链回给你。界面里没有粘贴框，发布不走 UI。
+在会话里打开一个 `.html` / `.htm` 文件（右侧预览面板），**预览头部会多出一个「云 + 上传箭头」图标按钮**（悬停提示会写出文件名）：
+
+1. 点它，Host 读取这个文件（`.html` / `.htm`，≤ 5 MB），发布到 `pages.vmao.top`。
+2. 上传中图标变淡；完成后旁边显示结果：成功给出短链（点一下复制），失败给出原因与 `code`。
+3. 标题默认取文件名（去掉扩展名）。
+
+按钮只有图标，没有可见文字，因此保留了 `aria-label`「上传到 HTML 托管」供读屏使用。非 HTML 文件不显示这个图标。文件内容只在 Host 进程内读取，不经过浏览器上传，也不回传页面内容。
+
+## 想发布任意 HTML？
+
+在会话里说一句，例如「把这份报告发到 pages.vmao.top」。AI 会调用 `html_host_publish`（接受 `html` / `title` / `ttlSeconds`）并把短链回给你。
 
 ## 凭证
 
@@ -54,6 +66,8 @@ Key 存在 DSH 的 credentials 服务里（一条 `grant` 记录），不写插�
 
 ## 实现要点
 
-浏览器不能直连 `pages.vmao.top`——该服务 `cors` 为 `null`，跨源预检会被拒。因此 Host 半注册了一条同源前缀路由 `/__html-host/*` 做代理（`GET /status`、`POST|DELETE /credential`、`GET /pages`、`POST /publish`），面板只与本机 DSH 通信，真正的出网请求由 Host 发出。
+浏览器不能直连 `pages.vmao.top`——该服务 `cors` 为 `null`，跨源预检会被拒。因此 Host 半注册了一条同源前缀路由 `/__html-host/*` 做代理（`GET /status`、`POST|DELETE /credential`、`GET /pages`、`POST /publish`、`POST /publish-file`），面板与预览按钮只与本机 DSH 通信，真正的出网请求由 Host 发出。
+
+`POST /publish-file` 接收预览头部传来的本机绝对路径，只接受 `.html` / `.htm`，校验存在性与大小后在 Host 内读取并发布；文件内容不回传浏览器，返回的只有短链。
 
 该路由用 `WebRoute`（原始 Node 请求处理）而不是资源式路由：资源式路由在 HTTP 层只承认 `GET` / `HEAD`，写操作会一律 405。写接口同时校验 `sec-fetch-site` 与 `Origin`，拒绝跨站调用。

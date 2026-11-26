@@ -1,8 +1,8 @@
 {
   "name": "dsh-html-host-panel",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
-  "description": "Browse HTML pages hosted on pages.vmao.top from a left sidebar panel in DeepSeek Harness; new pages are published through the html_host_publish agent tool.",
+  "description": "DeepSeek Harness plugin: browse HTML pages hosted on pages.vmao.top from a left sidebar panel, and publish the .html file you are previewing with one click from the preview header.",
   "license": "MIT",
   "author": "",
   "keywords": [
@@ -12,7 +12,8 @@
     "html",
     "hosting",
     "pages",
-    "html-host"
+    "html-host",
+    "upload"
   ],
   "exports": {
     ".": "./index.js",
@@ -37,7 +38,8 @@
       "immediately": true,
       "inject": [
         "@deepseek-ai/dsh-client-ui-sidebar",
-        "@deepseek-ai/dsh-client-ui-conversation"
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-sidebar-documentpreview"
       ]
     }
   }
